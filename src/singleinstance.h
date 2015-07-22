@@ -205,11 +205,22 @@ class SingleInstance {
 
 class SingleInstanceAuto {
 	public:
+		class Callback {
+			public:
+				virtual void onInstanceActivated(int argc, char **argv) = 0;
+			protected:
+				~Callback();
+		};
+
+		SingleInstanceAuto(const std::string &appName, Callback &callback);
+		SingleInstanceAuto(const std::string &appName, int argc, char **argv, Callback &callback);
 		SingleInstanceAuto(const std::string &appName, SingleInstanceCallback callback, void *userData = NULL);
 		SingleInstanceAuto(const std::string &appName, int argc, char **argv, SingleInstanceCallback callback, void *userData = NULL);
 		~SingleInstanceAuto();
 	private:
 		struct SingleInstanceAutoHandle *mHandle;
+
+		static void callbackWrapper(void *userData, int argc, char **argv);
 };
 
 #ifndef SINGLEINSTANCE_NO_INLINES
@@ -244,6 +255,20 @@ inline SingleInstance::Error::Error(const char *msg) : std::runtime_error(msg) {
 
 inline SingleInstance::Error::~Error() throw() {}
 
+inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, SingleInstanceAuto::Callback &callback) {
+	const char *err;
+	mHandle = singleInstanceAutoCreate(appName.c_str(), 0, NULL, &err, &callbackWrapper, (void *)&callback);
+	if(err) throw SingleInstance::Error(err);
+	if(!mHandle) throw SingleInstance::Exists();
+}
+
+inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, int argc, char **argv, SingleInstanceAuto::Callback &callback) {
+	const char *err;
+	mHandle = singleInstanceAutoCreate(appName.c_str(), argc, argv, &err, &callbackWrapper, (void *)&callback);
+	if(err) throw SingleInstance::Error(err);
+	if(!mHandle) throw SingleInstance::Exists();
+}
+
 inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, SingleInstanceCallback callback, void *userData) {
 	const char *err;
 	mHandle = singleInstanceAutoCreate(appName.c_str(), 0, NULL, &err, callback, userData);
@@ -260,6 +285,10 @@ inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, int ar
 
 inline SingleInstanceAuto::~SingleInstanceAuto() {
 	singleInstanceAutoDestroy(mHandle);
+}
+
+inline void SingleInstanceAuto::callbackWrapper(void *userData, int argc, char **argv) {
+	((SingleInstanceAuto::Callback *)userData)->onInstanceActivated(argc, argv);
 }
 
 
