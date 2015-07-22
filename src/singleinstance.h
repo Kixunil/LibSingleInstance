@@ -125,10 +125,34 @@ void singleInstanceStopWait(struct SingleInstanceHandle *handle);
  */
 void singleInstancePop(struct SingleInstanceHandle *handle);
 
+/** \brief Callback used for notifying about new instances
+ *
+ * Arguments to callback are: userData (user defined data), argc, argv
+ */
 typedef void (* SingleInstanceCallback)(void *, int, char **);
 
+/** \brief Creates separate auto-checking thread
+ *
+ * This function calls singleInstanceCreate and in case there is no other
+ * instance running, it creates new thread which automatically calls
+ * singleInstanceCheck(), user defined callback and singleInstancePop() until
+ * it is stopped by singleInstanceAutoDestroy() (which internally uses
+ * singleInstanceStopWait())
+ *
+ * Keep in mind consequences of multi threaded programming!
+ *
+ * The callback will be called just once at a time and it will prevent checking
+ * until it returns. If you need to perform some long operation, copy
+ * the arguments, create new thread, which will process them and return.
+ */
 struct SingleInstanceAutoHandle *singleInstanceAutoCreate(const char *appName, int argc, char **argv, char const **error, SingleInstanceCallback callback, void *userData);
 
+/** \brief Stops auto checking, destroys the thread and frees memory
+ *
+ * This function is used to stop auto checking and free resources allocated by
+ * handle. It requests thread to stop and waits for it to stop (join) avoiding
+ * race conditions.
+ */
 void singleInstanceAutoDestroy(struct SingleInstanceAutoHandle *handle);
 
 #ifdef __cplusplus
@@ -203,19 +227,51 @@ class SingleInstance {
 		SingleInstance &operator=(const SingleInstance &);
 };
 
+/** \brief C++ wrapper for struct SingleInstanceAutoHandle *
+ *
+ * If you program in C++ use this wrapper instead of raw C functions. You will
+ * avoid some problems and the code will look better.
+ */
 class SingleInstanceAuto {
 	public:
+		/** \brief SingleInstanceCallback wrapper.
+		 *
+		 * Allows you to use more OOP styled coding. You may inherit
+		 * from it your class and then pass it to the
+		 * SingleInstanceAuto constructor.
+		 */
 		class Callback {
 			public:
+				/** \brief Callback function.
+				 */
 				virtual void onInstanceActivated(int argc, char **argv) = 0;
-			protected:
-				~Callback();
+				/** virtual destructor
+				 */
+				virtual ~Callback();
 		};
 
+		/** \brief C++ equivalent of singleInstanceAutoCreate() with OOP
+		 * callback.
+		 */
 		SingleInstanceAuto(const std::string &appName, Callback &callback);
+
+		/** \brief C++ equivalent of singleInstanceAutoCreate() with OOP
+		 * callback.
+		 */
 		SingleInstanceAuto(const std::string &appName, int argc, char **argv, Callback &callback);
+
+		/** \brief C++ equivalent of singleInstanceAutoCreate() with original
+		 * callback.
+		 */
 		SingleInstanceAuto(const std::string &appName, SingleInstanceCallback callback, void *userData = NULL);
+
+		/** \brief C++ equivalent of singleInstanceAutoCreate() with original
+		 * callback.
+		 */
 		SingleInstanceAuto(const std::string &appName, int argc, char **argv, SingleInstanceCallback callback, void *userData = NULL);
+
+		/** \brief C++ equivalent of singleInstanceAutoDestroy().
+		 */
 		~SingleInstanceAuto();
 	private:
 		struct SingleInstanceAutoHandle *mHandle;
@@ -290,6 +346,8 @@ inline SingleInstanceAuto::~SingleInstanceAuto() {
 inline void SingleInstanceAuto::callbackWrapper(void *userData, int argc, char **argv) {
 	((SingleInstanceAuto::Callback *)userData)->onInstanceActivated(argc, argv);
 }
+
+inline SingleInstanceAuto::Callback::~Callback() {}
 
 
 #endif // SINGLEINSTANCE_NO_INLINES
