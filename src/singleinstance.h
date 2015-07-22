@@ -22,6 +22,14 @@ extern "C" {
  * platforms.
  */
 typedef struct SingleInstanceHandle {} SingleInstanceHandle;
+
+/** \brief Opaque thread with communication context
+ *
+ * This structure is constructed using singleInstanceAutoCreate() and should
+ * be treated as opaque identifier. The structure content differs on different
+ * platforms.
+ */
+typedef struct SingleInstanceAutoHandle {} SingleInstanceAutoHandle;
 #endif
 
 /** \brief Checks if other instance is running.
@@ -117,6 +125,12 @@ void singleInstanceStopWait(struct SingleInstanceHandle *handle);
  */
 void singleInstancePop(struct SingleInstanceHandle *handle);
 
+typedef void (* SingleInstanceCallback)(void *, int, char **);
+
+struct SingleInstanceAutoHandle *singleInstanceAutoCreate(const char *appName, int argc, char **argv, char const **error, SingleInstanceCallback callback, void *userData);
+
+void singleInstanceAutoDestroy(struct SingleInstanceAutoHandle *handle);
+
 #ifdef __cplusplus
 }
 
@@ -189,6 +203,15 @@ class SingleInstance {
 		SingleInstance &operator=(const SingleInstance &);
 };
 
+class SingleInstanceAuto {
+	public:
+		SingleInstanceAuto(const std::string &appName, SingleInstanceCallback callback, void *userData = NULL);
+		SingleInstanceAuto(const std::string &appName, int argc, char **argv, SingleInstanceCallback callback, void *userData = NULL);
+		~SingleInstanceAuto();
+	private:
+		struct SingleInstanceAutoHandle *mHandle;
+};
+
 #ifndef SINGLEINSTANCE_NO_INLINES
 inline SingleInstance::SingleInstance(const std::string &appName, int argc, char **argv) {
 			const char *err;
@@ -220,6 +243,25 @@ inline SingleInstance::Exists::~Exists() throw() {}
 inline SingleInstance::Error::Error(const char *msg) : std::runtime_error(msg) {}
 
 inline SingleInstance::Error::~Error() throw() {}
+
+inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, SingleInstanceCallback callback, void *userData) {
+	const char *err;
+	mHandle = singleInstanceAutoCreate(appName.c_str(), 0, NULL, &err, callback, userData);
+	if(err) throw SingleInstance::Error(err);
+	if(!mHandle) throw SingleInstance::Exists();
+}
+
+inline SingleInstanceAuto::SingleInstanceAuto(const std::string &appName, int argc, char **argv, SingleInstanceCallback callback, void *userData) {
+	const char *err;
+	mHandle = singleInstanceAutoCreate(appName.c_str(), argc, argv, &err, callback, userData);
+	if(err) throw SingleInstance::Error(err);
+	if(!mHandle) throw SingleInstance::Exists();
+}
+
+inline SingleInstanceAuto::~SingleInstanceAuto() {
+	singleInstanceAutoDestroy(mHandle);
+}
+
 
 #endif // SINGLEINSTANCE_NO_INLINES
 

@@ -36,6 +36,13 @@ struct SingleInstanceHandle {
 	int ctrlFifo[2];
 };
 
+struct SingleInstanceAutoHandle {
+	SingleInstanceHandle *handle;
+	pthread_t thread;
+	SingleInstanceCallback callback;
+	void *userData;
+};
+
 static void sendBuf(int fd, const char *buf, uint32_t len) {
 	static pid_t pid = getpid();
 	
@@ -118,7 +125,7 @@ int recvIter(SingleInstanceHandle *handle, int wait) {
 	FD_SET(handle->pfd, &fds);
 	FD_SET(handle->ctrlFifo[0], &fds);
 	int sret = select((handle->pfd > handle->ctrlFifo[0]?handle->pfd:handle->ctrlFifo[0]) + 1, &fds, NULL, NULL, wait?NULL:&tv);
-	if(sret && !FD_ISSET(handle->pfd, &fds)) fprintf(stderr, "If you see this message, something is wrong with your system.\n");
+	if(sret && !FD_ISSET(handle->pfd, &fds) && !FD_ISSET(handle->ctrlFifo[0], &fds)) fprintf(stderr, "If you see this message, something is wrong with your system.\n");
 	if(FD_ISSET(handle->ctrlFifo[0], &fds)) {
 		char c;
 		read(handle->ctrlFifo[0], &c, 1);
@@ -171,7 +178,7 @@ typedef struct SingleInstanceHandle SingleInstanceHandle;
 
 struct SingleInstanceHandle *singleInstanceCreate(const char *appName, int argc, char **argv, char const **error) {
 	static string serror;
-	*error = NULL;
+	if(error) *error = NULL;
 	int fd = -1, pfd = -1;
 	try {
 		string baseDir;
@@ -237,7 +244,7 @@ struct SingleInstanceHandle *singleInstanceCreate(const char *appName, int argc,
 		if(fd > -1) close(fd);
 		if(pfd > -1) close(pfd);
 		serror = e.what();
-		*error = serror.c_str();
+		if(error) *error = serror.c_str();
 		return NULL;
 	}
 }
@@ -281,4 +288,41 @@ void singleInstancePop(struct SingleInstanceHandle *handle) {
 void singleInstanceStopWait(struct SingleInstanceHandle *handle) {
 	char c = 0;
 	write(handle->ctrlFifo[1], &c, 1);
+}
+
+typedef struct SingleInstanceAutoHandle SingleInstanceAutoHandle;
+
+static void *autoCheckRun(void *arg) {
+	SingleInstanceAutoHandle *handle = (SingleInstanceAutoHandle *)arg;
+	int argc;
+	char **argv;
+	while(singleInstanceCheck(handle->handle, &argc, &argv, 1)) {
+		handle->callback(handle->userData, argc, argv);
+		singleInstancePop(handle->handle);
+	}
+	return NULL;
+}
+
+struct SingleInstanceAutoHandle *singleInstanceAutoCreate(const char *appName, int argc, char **argv, char const **error, SingleInstanceCallback callback, void *userData) {
+	SingleInstanceHandle *handle = singleInstanceCreate(appName, argc, argv, error);
+	if(!handle) return NULL;
+	struct SingleInstanceAutoHandle *ret = new SingleInstanceAutoHandle();
+	ret->handle = handle;
+	ret->callback = callback;
+	ret->userData = userData;
+	int err;
+	if((err = pthread_create(&ret->thread, NULL, &autoCheckRun, ret))) {
+		singleInstanceDestroy(handle);
+		delete ret;
+		if(error) *error = strerror(err);
+		return NULL;
+	}
+	return ret;
+}
+
+void singleInstanceAutoDestroy(struct SingleInstanceAutoHandle *handle) {
+	singleInstanceStopWait(handle->handle);
+	pthread_join(handle->thread, NULL);
+	singleInstanceDestroy(handle->handle);
+	delete handle;
 }

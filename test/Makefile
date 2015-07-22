@@ -1,6 +1,6 @@
 CXXFLAGS=-W -Wall
 
-BINARIES=basic withsignals
+BINARIES=basic withsignals auto
 
 all: $(BINARIES)
 
